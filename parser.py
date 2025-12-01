@@ -1,12 +1,14 @@
-# print statement
-class Print:
-    def __init__(self, args):
-        self.args = args
-        
-# all statements in the file
+from rules import PRINT_RECEIVER, PRINT_FIELD, PRINT_METHODS
+from dataclasses import dataclass
+from typing import List
+
+@dataclass
 class Module:
-    def __init__(self, body):
-        self.body = body
+    body: List[object]
+
+@dataclass
+class Print:
+    args: List[str]
 
 class Cursor:
     def __init__(self, tokens):
@@ -37,29 +39,32 @@ def parse_module(tokens):
         stmt = parse_statement(c)
         if stmt: 
             body.append(stmt)
-    return Module(body)
+    return Module(body=body)
 
-# parse statement to see if it matches System.out.println
 def parse_statement(c: Cursor):
-    if (c.peek().kind == "identifier" and c.peek().value == "System"
-        and c.peek(1).kind == "dot"
-        and c.peek(2).kind == "identifier" and c.peek(2).value == "out"
-        and c.peek(3).kind == "dot"
-        and c.peek(4).kind == "identifier" and c.peek(4).value in ("println","print")
-        and c.peek(5).kind == "left_parenthesis"):
+    peek = c.peek()
+    if (peek.kind == 'identifier' and peek.value == PRINT_RECEIVER and
+        c.peek(1).kind == 'dot' and c.peek(2).value == PRINT_FIELD and
+        c.peek(3).kind == 'dot' and c.peek(4).value in PRINT_METHODS):
         return parse_print(c)
-    while c.peek().kind not in ("semicolon","EOF"):
+    
+    while c.peek().kind not in ('semicolon', 'EOF'):
         c.pop()
-    if c.peek().kind == "semicolon": c.pop()
-    return None
+    if c.peek().kind == 'semicolon':
+        c.pop()
+    return None 
 
 def parse_print(c: Cursor):
-    c.expect("identifier", "System")
-    c.expect("dot", ".")
-    c.expect("identifier", "out")
-    c.expect("dot", ".")
-    name = c.expect("identifier").value 
-    c.expect("left_parenthesis", "(")
+    c.expect("identifier", PRINT_RECEIVER)
+    c.expect("dot", '.')          
+    c.expect("identifier", PRINT_FIELD)
+    c.expect("dot", '.')
+    name = c.expect("identifier").value
+    if name not in PRINT_METHODS:
+        raise SyntaxError(f'Expected {PRINT_METHODS}, got {name}')
+    c.expect("left_parenthesis", '(') 
     arg_tok = c.expect("string")
-    c.expect("right_parenthesis", ")"); c.expect("semicolon", ";")
+    c.expect("right_parenthesis", ')')
+    c.expect("semicolon", ';')
     return Print([arg_tok.value])
+

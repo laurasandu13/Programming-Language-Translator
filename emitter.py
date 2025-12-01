@@ -1,3 +1,5 @@
+from parser import Print
+
 def emit_module(mod):
     lines = []
     for stmt in mod.body:
@@ -5,6 +7,6 @@ def emit_module(mod):
     return "".join(lines) 
 
 def emit_stmt(stmt):
-    if stmt.__class__.__name__ == "Print": 
-        return f"print({stmt.args[0]})\n"
+    if isinstance(stmt, Print):
+        return f'print({stmt.args[0]})'
     raise NotImplementedError(f"No emitter for {type(stmt).__name__}")
