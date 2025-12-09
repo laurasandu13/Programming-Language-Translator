@@ -9,6 +9,12 @@ class Module:
 @dataclass
 class Print:
     args: List[str]
+    
+@dataclass
+class Variable:
+    name: str
+    value: str
+    type_hint: str
 
 class Cursor:
     def __init__(self, tokens):
@@ -43,10 +49,14 @@ def parse_module(tokens):
 
 def parse_statement(c: Cursor):
     peek = c.peek()
+    
     if (peek.kind == 'identifier' and peek.value == PRINT_RECEIVER and
         c.peek(1).kind == 'dot' and c.peek(2).value == PRINT_FIELD and
         c.peek(3).kind == 'dot' and c.peek(4).value in PRINT_METHODS):
         return parse_print(c)
+    
+    if peek.kind in ('int_type', 'string_type', 'char_type', 'float_type', 'double_type', 'boolean_type'):
+        return parse_variable(c)
     
     while c.peek().kind not in ('semicolon', 'EOF'):
         c.pop()
@@ -63,8 +73,26 @@ def parse_print(c: Cursor):
     if name not in PRINT_METHODS:
         raise SyntaxError(f'Expected {PRINT_METHODS}, got {name}')
     c.expect("left_parenthesis", '(') 
-    arg_tok = c.expect("string")
+    arg_token = c.peek()
+    if arg_token.kind == 'string' or arg_token.kind == 'identifier':
+        arg_token = c.pop()
+    else:
+        raise SyntaxError(f'Expected string or identifier at {arg_token.pos}, got {arg_token.kind} {arg_token.value!r}')
     c.expect("right_parenthesis", ')')
     c.expect("semicolon", ';')
-    return Print([arg_tok.value])
+    return Print([arg_token.value])
+
+def parse_variable(c: Cursor):
+    type_token = c.pop()
+    name_token = c.expect('identifier')
+    c.expect('assign')
+    value_token = c.peek()
+    if value_token.kind in ('string', 'char_literal', 'number', 'float_number', 
+                            'identifier', 'true_literal', 'false_literal'):
+        value_token = c.pop()
+    else: 
+        raise SyntaxError(f'Expected string, number, identifier, true or false but got {value_token.kind} {value_token.value!r}')
+    c.expect('semicolon', ';')
+    type_hint = type_token.value.lower()
+    return Variable(name=name_token.value, value=value_token.value, type_hint=type_hint)
 

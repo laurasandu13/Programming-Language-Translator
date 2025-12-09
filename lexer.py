@@ -11,26 +11,44 @@ class Token:
 def lex_java(src: str):
     patterns = {k: re.compile(v) for k, v in TOKEN_PATTERNS.items()}
     symbols = {s: t for s, t in SYMBOLS.items()}
+    keyword_patterns = ['INT', 'STRING_TYPE', 'CHAR', 'FLOAT', 'DOUBLE', 'BOOLEAN']
+    char_literal_patterns = ['CHAR_LITERAL']
     
     i = 0
     n = len(src) 
     while i < n:
         matched = False
         
-        for name, regex in patterns.items():
-            m = regex.match(src, i)
+        for name in keyword_patterns:
+            m = patterns[name].match(src, i)
             if m:
-                if name in ('WHITESPACE', 'LINE_COMMENT', 'BLOCK_COMMENT', 
-                            'CLASS_DECL', 'MAIN_DECL'):
-                    i = m.end()
-                    matched = True
-                    break
-                else:
-                    kind = TOKEN_KINDS.get(name, name.lower())
-                    yield Token(kind, m.group(0), i)
-                    i = m.end()
-                    matched =  True
-                    break
+                kind = TOKEN_KINDS[name]
+                yield Token(kind, m.group(0), i)
+                i = m.end()
+                matched = True
+                break
+        
+        if matched: continue
+        
+        for name in ['WHITESPACE', 'LINE_COMMENT', 'BLOCK_COMMENT', 'CLASS_DECL', 'MAIN_DECL']:
+            m = patterns[name].match(src, i)
+            if m:
+                i = m.end()
+                matched = True
+                break
+        
+        if matched: continue
+        
+        for name in patterns:
+            if name in keyword_patterns + ['WHITESPACE', 'LINE_COMMENT', 'BLOCK_COMMENT', 'CLASS_DECL', 'MAIN_DECL']:
+                continue
+            m = patterns[name].match(src, i)
+            if m:
+                kind = TOKEN_KINDS.get(name, name.lower())
+                yield Token(kind, m.group(0), i)
+                i = m.end()
+                matched = True
+                break
                 
         if not matched:
             ch = src[i]
