@@ -1,24 +1,32 @@
 public class HelloWorld {
     public static void main(String[] args) {
-        int x = 42;
-        System.out.println(x);
+        // String name = "Jane";
+        // System.out.println(name);
 
-        String name = "Jane";
-        System.out.println(name);
+        // double d = 5.4;
+        // System.out.println(d);
 
-        boolean b = true;
-        System.out.println(b);
+        // float f = 5.4f;
+        // System.out.println(f);
 
-        boolean t = false;
-        System.out.println(t);
+        // char c = 'm';
+        // System.out.println(c);
 
-        double d = 5.4;
-        System.out.println(d);
+        int score = 85;
+        boolean attended = true;
+        int attempts = 3;
 
-        float f = 5.4f;
-        System.out.println(f);
+        if (score >= 90 && attended) {
+            System.out.println("Grade: A+");
+        } else if (score >= 80) {
+            System.out.println("Grade: B");
+        } else if (score >= 70 || attempts > 2) {
+            System.out.println("Grade: C");
+        } else if (score >= 60) {
+            System.out.println("Grade: D");
+        } else {
+            System.out.println("Grade: F - Failed");
+        }
 
-        char c = 'm';
-        System.out.println(c);
     }
 }

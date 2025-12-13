@@ -27,7 +27,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dry-run',
         action='store_true',
-        help='Print translated code instead of writing to a file.   '
+        help='Print translated code instead of writing to a file.'
     )
     
     args = parser.parse_args()

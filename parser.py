@@ -15,6 +15,27 @@ class Variable:
     name: str
     value: str
     type_hint: str
+    
+@dataclass
+class BinaryCondition: #variable for condition in if statement
+    left: str
+    # when the condition is a bool/var name, 
+    # oeprator and right are empty strings
+    operator: str
+    right: str    
+    
+@dataclass
+class IfStatement:
+    condition: object
+    body: List[object]
+    else_if: 'IfStatement' = None # chain next elif
+    else_body: List[object] = None
+    
+@dataclass
+class LogicalCondition:
+    left: object #binary condition or logical condition
+    operator: str #and or or
+    right: object #binary condition or logical condition
 
 class Cursor:
     def __init__(self, tokens):
@@ -58,6 +79,10 @@ def parse_statement(c: Cursor):
     if peek.kind in ('int_type', 'string_type', 'char_type', 'float_type', 'double_type', 'boolean_type'):
         return parse_variable(c)
     
+    if peek.kind == 'if_keyword':
+        return parse_if(c)
+    
+    # skip unknown statements
     while c.peek().kind not in ('semicolon', 'EOF'):
         c.pop()
     if c.peek().kind == 'semicolon':
@@ -96,3 +121,73 @@ def parse_variable(c: Cursor):
     type_hint = type_token.value.lower()
     return Variable(name=name_token.value, value=value_token.value, type_hint=type_hint)
 
+def parse_condition(c: Cursor):
+    if c.peek().kind == 'identifier':
+        identifier = c.expect('identifier').value
+        next_token = c.peek()
+        if next_token.kind in ('eq', 'neq', 'lt', 'gt', 'leq', 'geq'):
+            operator = c.expect(next_token.kind).value
+            right_kinds = ('number', 'identifier', 'true_literal', 'false_literal')
+            if c.peek().kind in right_kinds:
+                right = c.expect(c.peek().kind).value
+            else:
+                raise SyntaxError(f'Expected {right_kinds} after {operator}, got {c.peek().kind}')
+            term = BinaryCondition(left=identifier, operator=operator, right=right)
+        else:
+            term = BinaryCondition(left=identifier, operator='', right='')
+    
+    elif c.peek().kind in ('true_literal', 'false_literal'):
+        bool_value = c.expect(c.peek().kind).value
+        term = BinaryCondition(left=bool_value, operator='', right='')
+    
+    elif c.peek().kind == 'left_parenthesis':
+        c.expect('left_parenthesis')
+        term = parse_condition(c)
+        c.expect('right_parenthesis')
+    
+    else:
+        raise SyntaxError(f'Unexpected token in condition at {c.peek().pos}: {c.peek().kind} {c.peek().value!r}')
+    
+    while c.peek().kind in ('and_op', 'or_op'): 
+        log_op = c.expect(c.peek().kind).value
+        right_term = parse_condition(c)
+        term = LogicalCondition(left=term, operator=log_op, right=right_term)
+    
+    return term
+    
+def parse_if(c: Cursor):
+    c.expect('if_keyword')
+    c.expect('left_parenthesis')
+
+    condition = parse_condition(c)
+    c.expect('right_parenthesis')
+    c.expect('left_brace')
+    
+    # parse body
+    if_body = []
+    while c.peek().kind != 'right_brace' and c.peek().kind != 'EOF':
+        stmt = parse_statement(c)
+        if stmt:
+            if_body.append(stmt)    
+    c.expect('right_brace')
+    
+    # else if chains
+    else_if = None
+    else_body = None
+    
+    if c.peek().kind == 'else_keyword':
+        c.expect('else_keyword')
+        
+        if c.peek().kind == 'if_keyword':
+            else_if = parse_if(c) # recursive call to parse next if as elif            
+        else:    
+            # final else
+            c.expect('left_brace')
+            else_body = []
+            while c.peek().kind != 'right_brace' and c.peek().kind != 'EOF':
+                stmt = parse_statement(c)
+                if stmt:
+                    else_body.append(stmt)
+            c.expect('right_brace')
+          
+    return IfStatement(condition=condition, body=if_body, else_if = else_if, else_body=else_body)

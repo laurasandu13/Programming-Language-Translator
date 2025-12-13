@@ -19,16 +19,28 @@ TOKEN_PATTERNS = {
     'BOOLEAN': r'\bboolean\b',
     'T_TRUE': r'\btrue\b',
     'T_FALSE': r'\bfalse\b',
+    # loops and conditionals
+    'IF': r'\bif\b',
+    'ELSE': r'\belse\b',
     #variable name
     'IDENT': r'[A-Za-z_][A-Za-z_0-9]*',
     #string content 
-    'STRING': r"\"(\\.|[^\'\\])*\"",
+    'STRING': r'"([^"\\]|\\.)*"',     # stops at first closing quote
     'CHAR_LITERAL': r"'(\\.|[^\\'])'",
     'FLOAT_NUMBER': r'\d+(\.\d+)?[fF]', 
     'NUMBER': r'\d+(\.\d+)?',
-    # operators and other characters
-    'ASSIGN': r'=',
+    # logical operators
+    'AND': r'&&',
+    'OR': r'\|\|',
+    # operators
     'EQ': r'==',
+    'NEQ': r'!=',
+    'LEQ': r'<=',
+    'GEQ': r'>=',
+    'LT': r'<',
+    'GT': r'>',
+    'ASSIGN': r'=',
+    # other characters
     'LBRACE': r'{',
     'RBRACE': r'}',
     'DOT': r'\.',
@@ -45,14 +57,25 @@ TOKEN_KINDS = {
     'BOOLEAN': 'boolean_type',
     'T_TRUE': 'true_literal',
     'T_FALSE': 'false_literal',
+    # loops and conditionals
+    'IF': 'if_keyword',
+    'ELSE': 'else_keyword',
     # other stuff
     'IDENT': 'identifier', 
     'STRING': 'string',
     'FLOAT_NUMBER': 'float_number',
     'NUMBER': 'number',
+    # logical operators
+    'AND': 'and_op',
+    'OR': 'or_op',
     # operators and other characters
     'ASSIGN': 'assign',
     'EQ': 'eq',
+    'NEQ': 'neq',
+    'LT': 'lt',
+    'GT': 'gt',
+    'LEQ': 'leq',
+    'GEQ': 'geq',
     'LBRACKET': 'left_bracket',
     'RBRACKET': 'right_bracket',
     'LBRACE': 'left_brace',
@@ -72,4 +95,6 @@ SYMBOLS = {
     "[": "left_bracket",
     "]": "right_bracket",
     "'": "single-quote",
+    "{": "left_brace",
+    "}": "right_brace",
 }
