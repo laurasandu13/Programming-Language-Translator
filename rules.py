@@ -22,6 +22,8 @@ TOKEN_PATTERNS = {
     # loops and conditionals
     'IF': r'\bif\b',
     'ELSE': r'\belse\b',
+    'WHILE': r'\bwhile\b',
+    'FOR': r'\bfor\b',
     #variable name
     'IDENT': r'[A-Za-z_][A-Za-z_0-9]*',
     #string content 
@@ -29,6 +31,10 @@ TOKEN_PATTERNS = {
     'CHAR_LITERAL': r"'(\\.|[^\\'])'",
     'FLOAT_NUMBER': r'\d+(\.\d+)?[fF]', 
     'NUMBER': r'\d+(\.\d+)?',
+    'INCREMENT': r'\+\+',
+    'PLUS': r'\+',
+    'DECREMENT': r'\-\-',
+    'MINUS': r'\-',
     # logical operators
     'AND': r'&&',
     'OR': r'\|\|',
@@ -57,9 +63,15 @@ TOKEN_KINDS = {
     'BOOLEAN': 'boolean_type',
     'T_TRUE': 'true_literal',
     'T_FALSE': 'false_literal',
+    'INCREMENT': 'increment_op',
+    'PLUS': 'plus_op',
+    'DECREMENT': 'decrement_op',
+    'MINUS': 'minus_op',
     # loops and conditionals
     'IF': 'if_keyword',
     'ELSE': 'else_keyword',
+    'WHILE': 'while_keyword',
+    'FOR': 'for_keyword',
     # other stuff
     'IDENT': 'identifier', 
     'STRING': 'string',

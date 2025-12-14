@@ -17,12 +17,23 @@ class Variable:
     type_hint: str
     
 @dataclass
+class VarUpdate:
+    name: str # variable being updated
+    delta: int # amount to increment/decrement by
+    
+@dataclass
 class BinaryCondition: #variable for condition in if statement
     left: str
     # when the condition is a bool/var name, 
     # oeprator and right are empty strings
     operator: str
     right: str    
+    
+@dataclass
+class LogicalCondition:
+    left: object #binary condition or logical condition
+    operator: str #and or or
+    right: object #binary condition or logical condition
     
 @dataclass
 class IfStatement:
@@ -32,10 +43,17 @@ class IfStatement:
     else_body: List[object] = None
     
 @dataclass
-class LogicalCondition:
-    left: object #binary condition or logical condition
-    operator: str #and or or
-    right: object #binary condition or logical condition
+class WhileStatement:
+    condition: object
+    body: List[object]    
+
+@dataclass
+class ForStatement:
+    init: object # VAriable or VarUpdate
+    condition: object # BinaryCondition or LogicalCondition
+    update: object # VarUpdate
+    body: List[object]    
+
 
 class Cursor:
     def __init__(self, tokens):
@@ -59,6 +77,7 @@ class Cursor:
             raise SyntaxError(f"Expected {kind} {value or ''} at {t.pos}, got {t.kind} {t.value!r}")
         return t
 
+# called in main
 def parse_module(tokens):
     c = Cursor(tokens)
     body = []
@@ -81,6 +100,20 @@ def parse_statement(c: Cursor):
     
     if peek.kind == 'if_keyword':
         return parse_if(c)
+    
+    if peek.kind == 'while_keyword':
+        return parse_while(c)
+    
+    if peek.kind == 'for_keyword':
+        return parse_for(c)
+    
+    if (peek.kind == 'identifier' and c.peek(1).kind in ('increment_op', 'decrement_op')
+                                  and c.peek(2).kind == 'semicolon'):
+        name = c.pop().value
+        op_token = c.pop()
+        c.pop() # skip semicolon
+        delta = 1 if op_token.kind == 'increment_op' else -1
+        return VarUpdate(name=name, delta=delta)
     
     # skip unknown statements
     while c.peek().kind not in ('semicolon', 'EOF'):
@@ -191,3 +224,65 @@ def parse_if(c: Cursor):
             c.expect('right_brace')
           
     return IfStatement(condition=condition, body=if_body, else_if = else_if, else_body=else_body)
+
+def parse_while(c: Cursor):
+    c.expect('while_keyword')
+    c.expect('left_parenthesis')
+    condition = parse_condition(c)
+    c.expect('right_parenthesis')
+    c.expect('left_brace')
+    
+    while_body = []
+    while c.peek().kind != 'right_brace' and c.peek().kind != 'EOF':
+        stmt = parse_statement(c)
+        if stmt:
+            while_body.append(stmt)
+    c.expect('right_brace')
+    
+    return WhileStatement(condition=condition, body=while_body)
+
+def parse_for(c: Cursor):
+    c.expect('for_keyword')
+    c.expect('left_parenthesis')
+    
+    init = None
+    if c.peek().kind != 'semicolon':
+        if c.peek().kind in ('int_type',):
+            type_token = c.pop()
+            name_token = c.expect('identifier')
+            c.expect('assign')
+            value_token = c.pop()
+            init = Variable(name=name_token.value, value=value_token.value, type_hint=type_token.value.lower())
+        elif c.peek(1).kind == 'assign':
+            name_token = c.expect('identifier')
+            c.expect('assign')
+            value_token = c.pop()
+            init = Variable(name=name_token.value, value=value_token.value, type_hint='int')
+    
+    c.expect('semicolon')
+        
+    condition = None
+    if c.peek().kind != 'semicolon':
+        condition = parse_condition(c)
+    c.expect('semicolon')
+    
+    update = None
+    if c.peek().kind != 'right_parenthesis':
+        if c.peek().kind == 'identifier' and c.peek(1).kind in ('increment_op', 'decrement_op'):
+            name = c.pop().value
+            op_token = c.pop()
+            delta = 1 if op_token.kind == 'increment_op' else -1
+            update = VarUpdate(name=name, delta=delta)
+            
+    c.expect('right_parenthesis')
+    
+    c.expect('left_brace')
+    
+    for_body = []
+    while c.peek().kind != 'right_brace' and c.peek().kind != 'EOF':
+        stmt = parse_statement(c)
+        if stmt:
+            for_body.append(stmt)
+    c.expect('right_brace')
+    
+    return ForStatement(init=init, condition=condition, update=update, body=for_body)
