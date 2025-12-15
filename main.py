@@ -33,17 +33,6 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
-    # with open(args.input, 'r', encoding='utf-8') as f:
-    #     java_src = f.read()
-        
-    # py_code = translate_str(java_src)
-    
-    # if args.dry_run or args.output is None:
-    #     print(py_code)
-    # else:
-    #     with open(args.output, 'w', encoding='utf-8') as f:
-    #         f.write(py_code)
-    
     try: 
         with open(args.input, 'r', encoding='utf-8') as f:
             java_src = f.read()
