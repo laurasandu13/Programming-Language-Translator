@@ -1,7 +1,16 @@
+"""
+Defines token patterns (regex), token kinds (categories), 
+and specific Java constructs.
+"""
+
 PRINT_RECEIVER = 'System'
 PRINT_FIELD = 'out'
 PRINT_METHODS = ('println', 'print')
 
+# TOKEN_PATTERNS: defines regex patterns to match Java language constructs
+# order matters: more specific patterns come before more general ones
+# according to python's 're' module behavior, patterns are matched in the order they are defined
+# used by the lexer
 TOKEN_PATTERNS = {
     # things to always skip
     'WHITESPACE': r'[ \t\r\n]+',
@@ -24,17 +33,22 @@ TOKEN_PATTERNS = {
     'ELSE': r'\belse\b',
     'WHILE': r'\bwhile\b',
     'FOR': r'\bfor\b',
-    #variable name
-    'IDENT': r'[A-Za-z_][A-Za-z_0-9]*',
     #string content 
     'STRING': r'"([^"\\]|\\.)*"',     # stops at first closing quote
     'CHAR_LITERAL': r"'(\\.|[^\\'])'",
+    #variable name
+    'IDENT': r'[A-Za-z_][A-Za-z_0-9]*',
+    # numbers
     'FLOAT_NUMBER': r'\d+(\.\d+)?[fF]', 
     'NUMBER': r'\d+(\.\d+)?',
+    # arithmetic operators
     'INCREMENT': r'\+\+',
     'PLUS': r'\+',
     'DECREMENT': r'\-\-',
     'MINUS': r'\-',
+    'MULTIPLY': r'\*',
+    'DIVIDE': r'\/',
+    'MODULO': r'%',
     # logical operators
     'AND': r'&&',
     'OR': r'\|\|',
@@ -46,12 +60,29 @@ TOKEN_PATTERNS = {
     'LT': r'<',
     'GT': r'>',
     'ASSIGN': r'=',
-    # other characters
-    'LBRACE': r'{',
-    'RBRACE': r'}',
+    # delimiters
+    'LBRACE': r'\{',
+    'RBRACE': r'\}',
+    'LPAREN': r'\(',  
+    'RPAREN': r'\)',  
+    'LBRACKET': r'\[',  
+    'RBRACKET': r'\]',  
+    'SEMI': r';',
+    'COMMA': r',',
     'DOT': r'\.',
 }
 
+# to use in lexer
+SKIP_TOKENS = ['WHITESPACE', 'LINE_COMMENT', 'BLOCK_COMMENT', 'CLASS_DECL', 'MAIN_DECL']
+TYPE_KEYWORDS = ['INT', 'STRING_TYPE', 'CHAR', 'FLOAT', 'DOUBLE', 'BOOLEAN']
+CONTROL_KEYWORDS = ['IF', 'ELSE', 'WHILE', 'FOR']
+LITERAL_KINDS = ('string', 'char_literal', 'number', 'float_number', 'true_literal', 'false_literal')
+PRINTABLE_KINDS = ('string', 'identifier', 'number', 'char_literal', 'float_number')
+VALUE_KINDS = LITERAL_KINDS + ('identifier',)
+
+# TOKEN_KINDS maps token pattern names to their semantic categories
+# this provides a consistent way to refer to different token types in the parser
+# used by the parser
 TOKEN_KINDS = {
     # variable types
     'INT': 'int_type',
@@ -61,12 +92,12 @@ TOKEN_KINDS = {
     'FLOAT': 'float_type',
     'DOUBLE': 'double_type',
     'BOOLEAN': 'boolean_type',
+    # literals
     'T_TRUE': 'true_literal',
     'T_FALSE': 'false_literal',
-    'INCREMENT': 'increment_op',
-    'PLUS': 'plus_op',
-    'DECREMENT': 'decrement_op',
-    'MINUS': 'minus_op',
+    'STRING': 'string',
+    'FLOAT_NUMBER': 'float_number',
+    'NUMBER': 'number',
     # loops and conditionals
     'IF': 'if_keyword',
     'ELSE': 'else_keyword',
@@ -74,13 +105,18 @@ TOKEN_KINDS = {
     'FOR': 'for_keyword',
     # other stuff
     'IDENT': 'identifier', 
-    'STRING': 'string',
-    'FLOAT_NUMBER': 'float_number',
-    'NUMBER': 'number',
+    # arithmetic operators
+    'INCREMENT': 'increment_op',
+    'PLUS': 'plus_op',
+    'DECREMENT': 'decrement_op',
+    'MINUS': 'minus_op',
+    'MULTIPLY': 'multiply_op',
+    'DIVIDE': 'divide_op',
+    'MODULO': 'modulo_op',
     # logical operators
     'AND': 'and_op',
     'OR': 'or_op',
-    # operators and other characters
+    # comparison opperators
     'ASSIGN': 'assign',
     'EQ': 'eq',
     'NEQ': 'neq',
@@ -88,6 +124,7 @@ TOKEN_KINDS = {
     'GT': 'gt',
     'LEQ': 'leq',
     'GEQ': 'geq',
+    # delimiters
     'LBRACKET': 'left_bracket',
     'RBRACKET': 'right_bracket',
     'LBRACE': 'left_brace',
@@ -96,9 +133,14 @@ TOKEN_KINDS = {
     'LPAREN': 'left_parenthesis',
     'RPAREN': 'right_parenthesis',
     'SEMI': 'semicolon',
+    'COMMA': 'comma',
     'SINGLE_QUOTE': 'single_quote',
 }   
 
+TYPE_TOKEN_KINDS = tuple(TOKEN_KINDS[k] for k in TYPE_KEYWORDS)
+
+# SYMBOLS provides a direct character-to-token-kind mapping for single-character symbols
+# this is used when TOKEN_PATTERNS doesn't match
 SYMBOLS = {
     "(": "left_parenthesis", 
     ")": "right_parenthesis", 
@@ -109,4 +151,5 @@ SYMBOLS = {
     "'": "single-quote",
     "{": "left_brace",
     "}": "right_brace",
+    ",": "comma",
 }

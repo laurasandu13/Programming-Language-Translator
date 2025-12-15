@@ -1,9 +1,21 @@
-from rules import PRINT_RECEIVER, PRINT_FIELD, PRINT_METHODS
+"""
+Parser module for Java-to-Python translation.
+Implements a recursive descent parser that converts tokens into an Abstract Syntax Tree (AST).
+Performs syntax analysis and builds a tree representation of the program structure.
+"""
+
+from rules import PRINT_RECEIVER, PRINT_FIELD, PRINT_METHODS, TYPE_TOKEN_KINDS, PRINTABLE_KINDS, LITERAL_KINDS, VALUE_KINDS
 from dataclasses import dataclass
-from typing import List
+from typing import List, Union, Optional
+from lexer import Token
+# AST node classes
+# dataclasses represent nodes in the AST
+# dataclasses generate automatically __init__ and other methods
 
 @dataclass
 class Module:
+    # root node of AST
+    # list of statements in the module
     body: List[object]
 
 @dataclass
@@ -18,51 +30,84 @@ class Variable:
     
 @dataclass
 class VarUpdate:
+    """
+    Represents an increment or decrement operation on a variable.
+    examples: x++, y--
+    """
     name: str # variable being updated
     delta: int # amount to increment/decrement by
     
 @dataclass
-class BinaryCondition: #variable for condition in if statement
+class BinaryCondition: 
+    """
+    Represent a binary comparison condition.
+    Example: x == 5 -> BinaryCondition(left='x', operator='==', right='5')
+             isActive -> BinaryCondition(left='isActive', operator='', right='')
+    """
     left: str
     # when the condition is a bool/var name, 
-    # oeprator and right are empty strings
+    # operator and right are empty strings
     operator: str
     right: str    
     
 @dataclass
 class LogicalCondition:
-    left: object #binary condition or logical condition
+    """
+    Represents a logical combination of conditions using && or ||.
+    Example: (x > 5 && y < 10) -> LogicalCondition with two BinaryConditions
+    
+    Allows nested conditions.
+    """
+    left: Union['BinaryCondition', 'LogicalCondition'] 
     operator: str #and or or
-    right: object #binary condition or logical condition
+    right: Union['BinaryCondition', 'LogicalCondition']
     
 @dataclass
 class IfStatement:
-    condition: object
+    """
+    Represents if/else-if/else statement chains.
+    else-if is represented as a recursive IfStatement.
+    """
+    
+    condition: Union[BinaryCondition, LogicalCondition]
     body: List[object]
-    else_if: 'IfStatement' = None # chain next elif
-    else_body: List[object] = None
+    else_if: Optional['IfStatement'] = None # chain next elif (recursive structure)
+    else_body: Optional[List[object]] = None
     
 @dataclass
 class WhileStatement:
-    condition: object
+    condition: Union[BinaryCondition, LogicalCondition]
     body: List[object]    
 
 @dataclass
 class ForStatement:
-    init: object # VAriable or VarUpdate
-    condition: object # BinaryCondition or LogicalCondition
-    update: object # VarUpdate
+    init: Optional[Union[Variable, VarUpdate]] # can be none
+    condition: Optional[Union[BinaryCondition, LogicalCondition]] # can be none
+    update: Optional[VarUpdate] # update expression (can be none)
     body: List[object]    
 
-
 class Cursor:
+    
+    """
+    Manages token stream navigation for the parser.
+    Provides three key operations:
+    - peek(k): look ahead at token without consuming
+    - pop(): consume and return current token
+    - expect(kind, value): consume token and verify it matches expectations
+    
+    Lookahead is necessary for determining which rule to apply.
+    """
+    
     def __init__(self, tokens):
-        self.tokens = list(tokens)
+        self.tokens = list(tokens) # convert generator to list for random access
         self.i = 0
     
     # look at future tokens without removing them from the token stream
     def peek(self, k = 0):
-        return self.tokens[self.i + k]
+        idx = self.i + k
+        if idx >= len(self.tokens):
+            return self.tokens[-1] if self.tokens else Token('EOF', '', 0)
+        return self.tokens[idx]
     
     # consume the current token
     def pop(self):
@@ -77,10 +122,15 @@ class Cursor:
             raise SyntaxError(f"Expected {kind} {value or ''} at {t.pos}, got {t.kind} {t.value!r}")
         return t
 
-# called in main
 def parse_module(tokens):
+    """
+    Converts token stream into AST Module.
+    Called from main.py after lexical analysis.
+    """
+    
     c = Cursor(tokens)
     body = []
+    
     while c.peek().kind != "EOF":
         stmt = parse_statement(c)
         if stmt: 
@@ -88,14 +138,19 @@ def parse_module(tokens):
     return Module(body=body)
 
 def parse_statement(c: Cursor):
+    """
+    Parses a single statement by examining the current 
+    token and dispatching to appropriate parse function.
+    """
     peek = c.peek()
     
+    # check for print statement
     if (peek.kind == 'identifier' and peek.value == PRINT_RECEIVER and
         c.peek(1).kind == 'dot' and c.peek(2).value == PRINT_FIELD and
         c.peek(3).kind == 'dot' and c.peek(4).value in PRINT_METHODS):
         return parse_print(c)
     
-    if peek.kind in ('int_type', 'string_type', 'char_type', 'float_type', 'double_type', 'boolean_type'):
+    if peek.kind in TYPE_TOKEN_KINDS:
         return parse_variable(c)
     
     if peek.kind == 'if_keyword':
@@ -107,6 +162,7 @@ def parse_statement(c: Cursor):
     if peek.kind == 'for_keyword':
         return parse_for(c)
     
+    # increment/decrement
     if (peek.kind == 'identifier' and c.peek(1).kind in ('increment_op', 'decrement_op')
                                   and c.peek(2).kind == 'semicolon'):
         name = c.pop().value
@@ -120,46 +176,69 @@ def parse_statement(c: Cursor):
         c.pop()
     if c.peek().kind == 'semicolon':
         c.pop()
+        
     return None 
 
 def parse_print(c: Cursor):
+    # consume java pattern: System.out.println(...)
     c.expect("identifier", PRINT_RECEIVER)
     c.expect("dot", '.')          
     c.expect("identifier", PRINT_FIELD)
     c.expect("dot", '.')
+    
+    # get print method name (println or print)
     name = c.expect("identifier").value
     if name not in PRINT_METHODS:
         raise SyntaxError(f'Expected {PRINT_METHODS}, got {name}')
+    
     c.expect("left_parenthesis", '(') 
+    
+    # parse argument
+    # currently only handles single argument, but could be extended for more
     arg_token = c.peek()
-    if arg_token.kind == 'string' or arg_token.kind == 'identifier':
+    if arg_token.kind in PRINTABLE_KINDS:
         arg_token = c.pop()
     else:
         raise SyntaxError(f'Expected string or identifier at {arg_token.pos}, got {arg_token.kind} {arg_token.value!r}')
+    
     c.expect("right_parenthesis", ')')
     c.expect("semicolon", ';')
+    
     return Print([arg_token.value])
 
 def parse_variable(c: Cursor):
     type_token = c.pop()
     name_token = c.expect('identifier')
     c.expect('assign')
+    
     value_token = c.peek()
-    if value_token.kind in ('string', 'char_literal', 'number', 'float_number', 
-                            'identifier', 'true_literal', 'false_literal'):
+    if value_token.kind in VALUE_KINDS:
         value_token = c.pop()
     else: 
         raise SyntaxError(f'Expected string, number, identifier, true or false but got {value_token.kind} {value_token.value!r}')
+    
     c.expect('semicolon', ';')
+    
+    # convert java type to python type hint
     type_hint = type_token.value.lower()
+    
     return Variable(name=name_token.value, value=value_token.value, type_hint=type_hint)
 
 def parse_condition(c: Cursor):
+    
+    """
+    Parse conditional expression recursively.
+    Handles binary conditions, boolean literals and logical operators.
+    Calls itself for nested conditions.
+    """
+    # check for comparison operator
     if c.peek().kind == 'identifier':
         identifier = c.expect('identifier').value
         next_token = c.peek()
+        # check for comparison operator
         if next_token.kind in ('eq', 'neq', 'lt', 'gt', 'leq', 'geq'):
             operator = c.expect(next_token.kind).value
+            # parse right side of comparison
             right_kinds = ('number', 'identifier', 'true_literal', 'false_literal')
             if c.peek().kind in right_kinds:
                 right = c.expect(c.peek().kind).value
@@ -175,23 +254,27 @@ def parse_condition(c: Cursor):
     
     elif c.peek().kind == 'left_parenthesis':
         c.expect('left_parenthesis')
+        # recursive call to parse nested condition
         term = parse_condition(c)
         c.expect('right_parenthesis')
     
     else:
-        raise SyntaxError(f'Unexpected token in condition at {c.peek().pos}: {c.peek().kind} {c.peek().value!r}')
-    
+        raise SyntaxError(
+            f'Unexpected token in condition at position {c.peek().pos}: '
+            f'{c.peek().kind} {c.peek().value!r}'
+        )
+    # check for logical operators and build LogicalCondition
     while c.peek().kind in ('and_op', 'or_op'): 
         log_op = c.expect(c.peek().kind).value
         right_term = parse_condition(c)
         term = LogicalCondition(left=term, operator=log_op, right=right_term)
     
     return term
-    
+
+# recursive parsing of if-else chains
 def parse_if(c: Cursor):
     c.expect('if_keyword')
     c.expect('left_parenthesis')
-
     condition = parse_condition(c)
     c.expect('right_parenthesis')
     c.expect('left_brace')
@@ -247,12 +330,16 @@ def parse_for(c: Cursor):
     
     init = None
     if c.peek().kind != 'semicolon':
-        if c.peek().kind in ('int_type',):
+        if c.peek().kind in TYPE_TOKEN_KINDS:
             type_token = c.pop()
             name_token = c.expect('identifier')
             c.expect('assign')
             value_token = c.pop()
-            init = Variable(name=name_token.value, value=value_token.value, type_hint=type_token.value.lower())
+            init = Variable(
+                name=name_token.value, 
+                value=value_token.value, 
+                type_hint=type_token.value.lower()
+            )
         elif c.peek(1).kind == 'assign':
             name_token = c.expect('identifier')
             c.expect('assign')
@@ -275,7 +362,6 @@ def parse_for(c: Cursor):
             update = VarUpdate(name=name, delta=delta)
             
     c.expect('right_parenthesis')
-    
     c.expect('left_brace')
     
     for_body = []
