@@ -4,7 +4,7 @@ Implements a recursive descent parser that converts tokens into an Abstract Synt
 Performs syntax analysis and builds a tree representation of the program structure.
 """
 
-from rules import PRINT_RECEIVER, PRINT_FIELD, PRINT_METHODS, TYPE_TOKEN_KINDS, PRINTABLE_KINDS, LITERAL_KINDS, VALUE_KINDS
+from rules import (PRINT_RECEIVER, PRINT_FIELD, PRINT_METHODS, TYPE_TOKEN_KINDS, FUNCTION_RETURN_TYPES)
 from dataclasses import dataclass
 from typing import List, Union, Optional
 from lexer import Token
@@ -84,7 +84,53 @@ class ForStatement:
     init: Optional[Union[Variable, VarUpdate]] # can be none
     condition: Optional[Union[BinaryCondition, LogicalCondition]] # can be none
     update: Optional[VarUpdate] # update expression (can be none)
-    body: List[object]    
+    body: List[object] 
+    
+@dataclass
+class UserInput:
+    name: str # variable name receiving input
+    input_type: str # type of scanner method (nextLine, nextInt, etc.)
+    var_type: str # java type being declared (intr, String, etc.) 
+    
+@dataclass
+class Function:
+    name: str
+    parameters: List[tuple] # list of (type, name) tuples for parameters
+    return_type: str
+    body: List[object]
+    
+@dataclass
+class Return:
+    value: Optional[str] # can be none for void functions
+    
+@dataclass
+class SwitchStatement:
+    expression: str
+    cases: List[tuple]  # list of (case_value, body) tuples
+    default_body: Optional[List[object]] = None # default case body (optional)
+    
+@dataclass
+class Class:
+    name: str
+    fields: List[Variable] # instance variables
+    constructor: Optional['Constructor']
+    methods: List[Function] # instance methods
+    
+@dataclass
+class Constructor:
+    # initialize obkects (becomes __init__ in python)
+    parameters: List[tuple] # list of (type, name) tuples
+    body: List[object] # constructor body statements
+    
+@dataclass
+class FieldAccess:
+    object_name: str # 'this' or object variable name
+    field_name: str # the field being accessed
+    
+@dataclass
+class ObjectCreation:
+    class_name: str
+    arguments: List[str] # constructor arguments
 
 class Cursor:
     
@@ -143,6 +189,26 @@ def parse_statement(c: Cursor):
     token and dispatching to appropriate parse function.
     """
     peek = c.peek()
+ 
+    # skip standalone closing braces (end of class body)
+    if peek.kind == 'right_brace':
+        c.pop()
+        return None
+    
+    # check for class declaration
+    if (peek.kind == 'identifier' and peek.value == 'class' and c.peek(1).kind == 'identifier'):
+        return parse_class(c)
+    
+    if (peek.kind == 'void_type' and 
+        c.peek(1).kind == 'identifier' and c.peek(1).value == 'main' and
+        c.peek(2).kind == 'left_parenthesis'):
+        c.pop()  # void
+        c.pop()  # main
+        c.pop()  # (
+        while c.peek().kind != 'left_brace' and c.peek().kind != 'EOF':
+            c.pop()
+        c.pop()  # consume the {
+        return None
     
     # check for print statement
     if (peek.kind == 'identifier' and peek.value == PRINT_RECEIVER and
@@ -150,8 +216,20 @@ def parse_statement(c: Cursor):
         c.peek(3).kind == 'dot' and c.peek(4).value in PRINT_METHODS):
         return parse_print(c)
     
+    if peek.kind in FUNCTION_RETURN_TYPES:
+        if (c.peek(1).kind == 'identifier' and c.peek(2).kind == 'left_parenthesis'):
+            func = parse_function(c)
+            return func
+    
     if peek.kind in TYPE_TOKEN_KINDS:
+        if (c.peek(1).kind == 'identifier' and 
+            c.peek(2).kind == 'assign' and 
+            c.peek(3).kind == 'identifier' and
+            c.peek(4).kind in ('scanner_nextline', 'scanner_nextint', 'scanner_nextdouble', 
+                            'scanner_nextfloat', 'scanner_next')):
+            return parse_user_input(c)
         return parse_variable(c)
+
     
     if peek.kind == 'if_keyword':
         return parse_if(c)
@@ -162,6 +240,12 @@ def parse_statement(c: Cursor):
     if peek.kind == 'for_keyword':
         return parse_for(c)
     
+    if peek.kind == 'return_keyword':
+        return parse_return(c)
+    
+    if peek.kind == 'switch_keyword':
+        return parse_switch(c)
+    
     # increment/decrement
     if (peek.kind == 'identifier' and c.peek(1).kind in ('increment_op', 'decrement_op')
                                   and c.peek(2).kind == 'semicolon'):
@@ -171,6 +255,50 @@ def parse_statement(c: Cursor):
         delta = 1 if op_token.kind == 'increment_op' else -1
         return VarUpdate(name=name, delta=delta)
     
+    if (peek.kind == 'identifier' and c.peek(1).kind == 'assign'):
+        name = c.pop().value
+        c.expect('assign')
+        
+        value_tokens = []
+        while c.peek().kind != 'semicolon' and c.peek().kind != 'EOF':
+            value_tokens.append(c.pop().value)
+        
+        c.expect('semicolon')
+        value = ' '.join(value_tokens)
+        
+        return Variable(name=name, value=value, type_hint='')
+    
+    # handle this.field++ and this.field-- (in constructors/methods)
+    if (peek.kind == 'this_keyword' and c.peek(1).kind == 'dot' and 
+        c.peek(3).kind in ('increment_op', 'decrement_op')):
+        c.pop()  # consume 'this'
+        c.expect('dot')
+        field_name = c.expect('identifier').value
+        op_token = c.pop()  # ++ or --
+        c.expect('semicolon')
+        
+        delta = 1 if op_token.kind == 'increment_op' else -1
+        # return as VarUpdate with 'this.field' as name
+        return VarUpdate(name=f'this.{field_name}', delta=delta)
+
+    # handle this.field = value (in constructors/methods)
+    if (peek.kind == 'this_keyword' and c.peek(1).kind == 'dot'):
+        c.pop()  # consume 'this'
+        c.expect('dot')
+        field_name = c.expect('identifier').value
+        c.expect('assign')
+        
+        # collect value expression
+        value_tokens = []
+        while c.peek().kind != 'semicolon' and c.peek().kind != 'EOF':
+            value_tokens.append(c.pop().value)
+        
+        c.expect('semicolon')
+        value = ' '.join(value_tokens)
+        
+        # return as Variable with 'this.field' as name
+        return Variable(name=f'this.{field_name}', value=value, type_hint='')
+
     # skip unknown statements
     while c.peek().kind not in ('semicolon', 'EOF'):
         c.pop()
@@ -193,36 +321,46 @@ def parse_print(c: Cursor):
     
     c.expect("left_parenthesis", '(') 
     
-    # parse argument
-    # currently only handles single argument, but could be extended for more
-    arg_token = c.peek()
-    if arg_token.kind in PRINTABLE_KINDS:
-        arg_token = c.pop()
-    else:
-        raise SyntaxError(f'Expected string or identifier at {arg_token.pos}, got {arg_token.kind} {arg_token.value!r}')
+    arg_tokens = []
+    while c.peek().kind != "right_parenthesis" and c.peek().kind != "EOF":
+        arg_tokens.append(c.pop().value)
+        
+    arg_value = ' '.join(arg_tokens) if arg_tokens else ''
     
     c.expect("right_parenthesis", ')')
     c.expect("semicolon", ';')
     
-    return Print([arg_token.value])
+    return Print([arg_value])
 
 def parse_variable(c: Cursor):
     type_token = c.pop()
     name_token = c.expect('identifier')
-    c.expect('assign')
     
-    value_token = c.peek()
-    if value_token.kind in VALUE_KINDS:
-        value_token = c.pop()
-    else: 
-        raise SyntaxError(f'Expected string, number, identifier, true or false but got {value_token.kind} {value_token.value!r}')
+    #  check if there's an assignment
+    if c.peek().kind == 'assign':
+        c.expect('assign')
+        
+        value_tokens = []
+        while c.peek().kind != 'semicolon' and c.peek().kind != 'EOF':
+            value_tokens.append(c.pop().value)
+        
+        c.expect('semicolon', ';')
+        
+        value = ' '.join(value_tokens)
     
-    c.expect('semicolon', ';')
-    
-    # convert java type to python type hint
+    else:
+        # no initialization
+        c.expect('semicolon', ';')
+        value = ''  # empty value for uninitalized fields
+        
     type_hint = type_token.value.lower()
     
-    return Variable(name=name_token.value, value=value_token.value, type_hint=type_hint)
+    return Variable(
+        name=name_token.value, 
+        value=value, 
+        type_hint=type_hint
+    )
+
 
 def parse_condition(c: Cursor):
     
@@ -231,45 +369,44 @@ def parse_condition(c: Cursor):
     Handles binary conditions, boolean literals and logical operators.
     Calls itself for nested conditions.
     """
-    # check for comparison operator
-    if c.peek().kind == 'identifier':
-        identifier = c.expect('identifier').value
-        next_token = c.peek()
-        # check for comparison operator
-        if next_token.kind in ('eq', 'neq', 'lt', 'gt', 'leq', 'geq'):
-            operator = c.expect(next_token.kind).value
-            # parse right side of comparison
-            right_kinds = ('number', 'identifier', 'true_literal', 'false_literal')
-            if c.peek().kind in right_kinds:
-                right = c.expect(c.peek().kind).value
-            else:
-                raise SyntaxError(f'Expected {right_kinds} after {operator}, got {c.peek().kind}')
-            term = BinaryCondition(left=identifier, operator=operator, right=right)
-        else:
-            term = BinaryCondition(left=identifier, operator='', right='')
     
-    elif c.peek().kind in ('true_literal', 'false_literal'):
-        bool_value = c.expect(c.peek().kind).value
-        term = BinaryCondition(left=bool_value, operator='', right='')
-    
-    elif c.peek().kind == 'left_parenthesis':
+    if c.peek().kind == 'left_parenthesis':
         c.expect('left_parenthesis')
         # recursive call to parse nested condition
         term = parse_condition(c)
         c.expect('right_parenthesis')
-    
+        
+    elif c.peek().kind in ('true_literal', 'false_literal'):
+        bool_value = c.expect(c.peek().kind).value
+        term = BinaryCondition(left=bool_value, operator='', right='')
+        
     else:
-        raise SyntaxError(
-            f'Unexpected token in condition at position {c.peek().pos}: '
-            f'{c.peek().kind} {c.peek().value!r}'
-        )
-    # check for logical operators and build LogicalCondition
+        left_tokens = []
+        while c.peek().kind not in ('eq', 'neq', 'lt', 'gt', 'leq', 'geq', 
+                                      'right_parenthesis', 'and_op', 'or_op', 'EOF'):
+            left_tokens.append(c.pop().value)
+        
+        left_expr = ' '.join(left_tokens)
+        
+        if c.peek().kind in ('eq', 'neq', 'lt', 'gt', 'leq', 'geq'):
+            operator = c.expect(c.peek().kind).value
+            
+            right_tokens = []
+            while c.peek().kind not in ('right_parenthesis', 'and_op', 'or_op', 
+                                         'semicolon', 'left_brace', 'EOF'):
+                right_tokens.append(c.pop().value)
+            
+            right_expr = ' '.join(right_tokens)
+            term = BinaryCondition(left=left_expr, operator=operator, right=right_expr)
+        else:
+            term = BinaryCondition(left=left_expr, operator='', right='')
+   
     while c.peek().kind in ('and_op', 'or_op'): 
         log_op = c.expect(c.peek().kind).value
         right_term = parse_condition(c)
         term = LogicalCondition(left=term, operator=log_op, right=right_term)
     
-    return term
+    return term 
 
 # recursive parsing of if-else chains
 def parse_if(c: Cursor):
@@ -306,7 +443,12 @@ def parse_if(c: Cursor):
                     else_body.append(stmt)
             c.expect('right_brace')
           
-    return IfStatement(condition=condition, body=if_body, else_if = else_if, else_body=else_body)
+    return IfStatement(
+        condition=condition, 
+        body=if_body, 
+        else_if = else_if, 
+        else_body=else_body
+    )
 
 def parse_while(c: Cursor):
     c.expect('while_keyword')
@@ -322,7 +464,10 @@ def parse_while(c: Cursor):
             while_body.append(stmt)
     c.expect('right_brace')
     
-    return WhileStatement(condition=condition, body=while_body)
+    return WhileStatement(
+        condition=condition, 
+        body=while_body
+    )
 
 def parse_for(c: Cursor):
     c.expect('for_keyword')
@@ -371,4 +516,244 @@ def parse_for(c: Cursor):
             for_body.append(stmt)
     c.expect('right_brace')
     
-    return ForStatement(init=init, condition=condition, update=update, body=for_body)
+    return ForStatement(
+        init=init, 
+        condition=condition, 
+        update=update, 
+        body=for_body
+    )
+
+def parse_user_input(c: Cursor):
+    type_token = c.pop()
+    name_token = c.expect('identifier')
+    c.expect('assign')
+    scanner_obj = c.expect('identifier')
+    
+    method_token = c.peek()
+    if method_token.kind in ('scanner_nextline', 'scanner_nextint', 'scanner_nextdouble', 
+                             'scanner_nextfloat', 'scanner_next'):
+        method_token = c.pop()
+    else:
+        raise SyntaxError(f'Expected scanner input method at {method_token.pos}, got {method_token.kind} {method_token.value!r}')
+    
+    c.expect('semicolon', ';')
+    
+    # map token kind to method name
+    method_map = {
+        'scanner_nextline': 'nextLine',
+        'scanner_nextint': 'nextInt',
+        'scanner_nextdouble': 'nextDouble',
+        'scanner_nextfloat': 'nextFloat',
+        'scanner_next': 'next'
+    }
+    
+    return UserInput(
+        name=name_token.value,
+        input_type=method_map[method_token.kind],
+        var_type=type_token.value.lower()
+    )
+    
+def parse_function(c: Cursor):
+    return_type_token = c.pop()
+    return_type = return_type_token.value.lower()
+    
+    name_token = c.expect('identifier')
+    function_name = name_token.value
+    
+    c.expect('left_parenthesis')
+    params = []
+    
+    # check if there are any parameters
+    if c.peek().kind != 'right_parenthesis':
+        while True:
+            if c.peek().kind in TYPE_TOKEN_KINDS:
+                param_type = c.pop().value.lower()
+            else:
+                raise SyntaxError(f'Expected parameter type at {c.peek().pos}, got {c.peek().kind} {c.peek().value!r}')
+            
+            param_name = c.expect('identifier').value
+            params.append((param_type, param_name))
+            
+            if c.peek().kind == 'comma':
+                c.pop()
+            else:
+                break
+        
+    c.expect('right_parenthesis')
+    c.expect('left_brace')
+    
+    function_body = []
+    while c.peek().kind != 'right_brace' and c.peek().kind != 'EOF':
+        stmt = parse_statement(c)
+        if stmt:
+            function_body.append(stmt)
+    
+    c.expect('right_brace')
+    
+    return Function(
+        name=function_name,
+        parameters=params,
+        return_type=return_type,
+        body=function_body
+    )
+    
+def parse_return(c: Cursor):
+    c.expect('return_keyword')
+    
+    if c.peek().kind == 'semicolon':
+        c.expect('semicolon')
+        return Return(value=None) # for void functions
+    
+    return_tokens = []
+    while c.peek().kind != 'semicolon' and c.peek().kind != 'EOF':
+        return_tokens.append(c.pop().value)
+        
+    c.expect('semicolon')
+    
+    return_value = ' '.join(return_tokens)
+    return Return(value=return_value)
+
+def parse_switch(c: Cursor):
+    c.expect('switch_keyword')
+    c.expect('left_parenthesis')
+    
+    expr_tokens = []
+    while c.peek().kind != 'right_parenthesis' and c.peek().kind != 'EOF':
+        expr_tokens.append(c.pop().value)
+    expression = ' '.join(expr_tokens)
+    
+    c.expect('right_parenthesis')
+    c.expect('left_brace')
+
+    cases = []
+    default_body = None
+    
+    while c.peek().kind != 'right_brace' and c.peek().kind != 'EOF':
+        if c.peek().kind == 'case_keyword':
+            c.pop()  # consume 'case'
+            
+            case_value = c.pop().value
+            c.expect('colon')
+            
+            case_body = []
+            has_break = False
+            
+            while c.peek().kind not in ('case_keyword', 'default_keyword', 'right_brace', 'EOF'):
+                if c.peek().kind == 'break_keyword':
+                    has_break = True
+                    c.pop()  # consume 'break'
+                    c.expect('semicolon')
+                    has_break = True
+                    break
+                else:
+                    stmt = parse_statement(c)
+                    if stmt:
+                        case_body.append(stmt)
+
+            cases.append((case_value, case_body, has_break))
+            
+        elif c.peek().kind == 'default_keyword':
+            c.pop()
+            c.expect('colon')
+            
+            default_body = []
+            while c.peek().kind not in ('right_brace', 'EOF'):
+                if c.peek().kind == 'break_keyword':
+                    c.pop()  # consume 'break'
+                    if c.peek().kind == 'semicolon':
+                        c.pop()
+                    break
+                else:
+                    stmt = parse_statement(c)
+                    if stmt:
+                        default_body.append(stmt)
+        
+        else:
+            c.pop()  # skip unknown tokens
+            
+    c.expect('right_brace')
+    
+    return SwitchStatement(
+        expression=expression, 
+        cases=cases, 
+        default_body=default_body
+    )
+
+def parse_class(c: Cursor):
+    c.expect('identifier', 'class')
+    class_name = c.expect('identifier').value
+    c.expect('left_brace')
+    
+    fields = []
+    constructor = None
+    methods = []
+    
+    while c.peek().kind != 'right_brace' and c.peek().kind != 'EOF':
+        peek = c.peek()
+        
+        # check for field declaration
+        if peek.kind in TYPE_TOKEN_KINDS:
+            if c.peek(1).kind == 'identifier' and c.peek(2).kind in ('semicolon', 'assign'):
+                field = parse_variable(c)
+                fields.append(field)
+                continue
+        
+        #  check for constructor
+        if peek.kind == 'identifier' and peek.value == class_name and c.peek(1).kind == 'left_parenthesis':
+            constructor = parse_constructor(c, class_name)
+            continue
+        
+        # check for method
+        if peek.kind in FUNCTION_RETURN_TYPES:
+            if (c.peek(1).kind == 'identifier' and c.peek(2).kind == 'left_parenthesis'):
+                method = parse_function(c)
+                methods.append(method)
+                continue
+            
+        c.pop()  # skip unknown tokens
+        
+    c.expect('right_brace')
+    
+    return Class(
+        name=class_name, 
+        fields=fields, 
+        constructor=constructor, 
+        methods=methods
+    )
+
+def parse_constructor(c: Cursor, class_name: str):
+    c.expect('identifier', class_name)
+    c.expect('left_parenthesis')
+    params = []
+    
+    # check if there are any parameters
+    if c.peek().kind != 'right_parenthesis':
+        while True:
+            if c.peek().kind in TYPE_TOKEN_KINDS:
+                param_type = c.pop().value.lower()
+            else:
+                raise SyntaxError(f'Expected parameter type at {c.peek().pos}, got {c.peek().kind} {c.peek().value!r}')
+            
+            param_name = c.expect('identifier').value
+            params.append((param_type, param_name))
+            
+            if c.peek().kind == 'comma':
+                c.pop()
+            else:
+                break
+        
+    c.expect('right_parenthesis')
+    c.expect('left_brace')
+    
+    constructor_body = []
+    while c.peek().kind != 'right_brace' and c.peek().kind != 'EOF':
+        stmt = parse_statement(c)
+        if stmt:
+            constructor_body.append(stmt)
+    
+    c.expect('right_brace')
+    
+    return Constructor(
+        parameters=params,
+        body=constructor_body
+    )

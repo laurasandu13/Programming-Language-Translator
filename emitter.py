@@ -2,10 +2,12 @@
 Code emitter module for Java-to-Python translator.
 Converts AST into formatter Python source code.
 """
+import re
 
 from parser import (
     Print, Variable, IfStatement, BinaryCondition, 
-    LogicalCondition, WhileStatement, VarUpdate, ForStatement
+    LogicalCondition, WhileStatement, VarUpdate, ForStatement, UserInput,
+    Function, Return, SwitchStatement, Class, Constructor, FieldAccess, ObjectCreation
 )
 
 INDENT = '    '
@@ -74,6 +76,9 @@ def emit_value(val):
         return 'False'
     elif len(val) > 1 and val[-1] in ('f', 'F'):
         return val[:-1]
+    
+    if val.startswith('new '):
+        return val[4:]
     
     return val
 
@@ -193,6 +198,167 @@ def emit_for(stmt):
     
     return ''.join(lines) + result
 
+def emit_user_input(stmt):
+    if stmt.input_type in ('nextLine', 'next'):
+        return f'{stmt.name} = input()\n'
+    elif stmt.input_type == 'nextInt':
+        return f'{stmt.name} = int(input())\n'
+    elif stmt.input_type in ('nextDouble', 'nextFloat'):
+        return f'{stmt.name} = float(input())\n'
+    else:   
+        raise NotImplementedError(f"Unknown input type: {stmt.input_type}")
+    
+def emit_function(stmt):
+    param_names = [name for (param_type, name) in stmt.parameters]
+    params_str = ', '.join(param_names)
+    result = f'def {stmt.name}({params_str}):\n'
+    
+    if stmt.body:
+        body_lines = [emit_stmt(s) for s in stmt.body]
+        body_str = ''.join(body_lines)
+        result += indent_lines(body_str, level=1)
+    else:
+        result += indent_lines('pass\n', level=1)
+    return result + '\n'
+
+def emit_return(stmt):
+    if stmt.value is None:
+        return 'return\n'
+    else:
+        converted_value = emit_value(stmt.value)
+        return f'return {converted_value}\n'
+    
+def emit_switch(stmt):
+    # Special case: switch with only default (no cases)
+    if not stmt.cases and stmt.default_body:
+        # Just emit the default body directly
+        result = ""
+        for s in stmt.default_body:
+            result += emit_stmt(s)
+        return result
+    
+    # Special case: switch with no cases and no default (empty switch)
+    if not stmt.cases and not stmt.default_body:
+        return "pass\n"
+    
+    result = ""
+    first_case = True
+    
+    i = 0
+    while i < len(stmt.cases):
+        case_value, case_body, has_break = stmt.cases[i]
+        
+        # Collect cases for fall-through
+        fall_through_cases = [case_value]
+        accumulated_body = list(case_body)
+        
+        # If no break, accumulate following cases
+        if not has_break and i < len(stmt.cases) - 1:
+            j = i + 1
+            while j < len(stmt.cases):
+                next_val, next_body, next_break = stmt.cases[j]
+                fall_through_cases.append(next_val)
+                accumulated_body.extend(next_body)
+                if next_break:
+                    i = j  # Skip to this case
+                    break
+                j += 1
+            else:
+                i = j - 1
+        
+        # Build condition with all fall-through values
+        condition_parts = [f'{stmt.expression} == {emit_value(val)}' for val in fall_through_cases]
+        condition = ' or '.join(condition_parts)
+        
+        if first_case:
+            result += f'if {condition}:\n'
+            first_case = False
+        else:
+            result += f'elif {condition}:\n'
+            
+        if accumulated_body:
+            body_lines = [emit_stmt(s) for s in accumulated_body]
+            body_str = ''.join(body_lines)
+            result += indent_lines(body_str, level=1)
+        else:
+            result += indent_lines('pass\n', level=1)
+        
+        i += 1
+    
+    # handle default case
+    if stmt.default_body:
+        result += 'else:\n'
+        default_lines = [emit_stmt(s) for s in stmt.default_body]
+        default_str = ''.join(default_lines)
+        result += indent_lines(default_str, level=1)
+    
+    return result
+
+def emit_class(stmt):
+    result = f'class {stmt.name}:\n'
+
+    # if class is completely empty
+    if not stmt.constructor and not stmt.methods and not stmt.fields:
+        result += indent_lines('pass', level=1)
+        return result + '\n'
+    
+    # emit constructor
+    if stmt.constructor:
+        result += emit_constructor(stmt.constructor)
+    elif stmt.fields:
+        # if no constructor, but has fields, create default __init__
+        result += indent_lines('def __init__(self):\n', level=1)
+        for field in stmt.fields:
+            if field.value:
+                result += indent_lines(f'self.{field.name} = {emit_value(field.value)}\n', level=2)
+            else:
+                result += indent_lines(f'self.{field.name} = None\n', level=2)
+    
+    # emit instance methods
+    for method in stmt.methods:
+        result += emit_method(method)
+        
+    return result + '\n'
+
+def emit_constructor(stmt):
+    param_names = ['self'] + [name for (param_type, name) in stmt.parameters]
+    params_str = ', '.join(param_names)
+    result = indent_lines(f'def __init__({params_str}):\n', level=1)
+    
+    if stmt.body:
+        body_lines = []
+        for s in stmt.body:
+            line = emit_stmt(s)
+            # convert 'this.field' to 'self.field' in constructor body
+            line = re.sub(r'this\s*\.\s*', 'self.', line)
+            body_lines.append(line)
+        body_str = ''.join(body_lines)
+        result += indent_lines(body_str, level=2)
+    else:
+        result += indent_lines('pass\n', level=2)
+        
+    return result + '\n'
+
+def emit_method(stmt):
+    # build parameter list with 'self'
+    param_names = ['self'] + [name for (param_type, name) in stmt.parameters]
+    params_str = ', '.join(param_names)
+    result = indent_lines(f'def {stmt.name}({params_str}):\n', level=1)
+    
+    if stmt.body:
+        body_lines = []
+        for s in stmt.body:
+            line = emit_stmt(s)
+            line = re.sub(r'this\s*\.\s*', 'self.', line)
+            body_lines.append(line)
+        body_str = ''.join(body_lines)
+        result += indent_lines(body_str, level=2)
+    else:
+        result += indent_lines('pass\n', level=2)
+    
+    return result + '\n'
+    
+    
 def emit_stmt(stmt):
     
     """
@@ -200,7 +366,12 @@ def emit_stmt(stmt):
     Dispatches to appropriate emitter based on statement type.
     """
     if isinstance(stmt, Print):
-        return f'print({stmt.args[0]})\n' 
+        arg = stmt.args[0]
+        
+        if '+' in arg:
+            arg_with_commas = arg.replace(' + ', ', ')
+            return f'print({arg_with_commas})\n'
+        return f'print({arg})\n'
     
     elif isinstance(stmt, Variable):
         val = emit_value(stmt.value)
@@ -220,5 +391,20 @@ def emit_stmt(stmt):
         
     elif isinstance(stmt, ForStatement):
         return emit_for(stmt)
+    
+    elif isinstance(stmt, UserInput):
+        return emit_user_input(stmt)
+    
+    elif isinstance(stmt, Function):
+        return emit_function(stmt)
+    
+    elif isinstance(stmt, Return):
+        return emit_return(stmt)
+    
+    elif isinstance(stmt, SwitchStatement):
+        return emit_switch(stmt)
+    
+    elif isinstance(stmt, Class):
+        return emit_class(stmt)
 
     raise NotImplementedError(f"No emitter for {type(stmt).__name__}")

@@ -16,9 +16,29 @@ TOKEN_PATTERNS = {
     'WHITESPACE': r'[ \t\r\n]+',
     'LINE_COMMENT': r'//.*',
     'BLOCK_COMMENT': r'/\*.*?\*/',
-        # main file declaration in java
-    'CLASS_DECL': r'\bpublic\s+class\s+[A-Za-z_][A-Za-z_0-9]*\s*{?',
+    # main file declaration in java
+    'CLASS_DECL': r'\bpublic\s+class\s+[A-Za-z_][A-Za-z_0-9]*\s*\{',
+    'NEW': r'\bnew\b',
+    'THIS': r'\bthis\b',
     'MAIN_DECL': r'\bpublic\s+static\s+void\s+main\s*\(\s*String\s*\[\s*\]\s*args\s*\)\s*{?',
+    # USER INPUT
+    # scanner import and object creation
+    'SCANNER_IMPORT': r'\bimport\s+java\.util\.Scanner\s*;',
+    'SCANNER_CREATE': r'\bScanner\s+[A-Za-z_][A-Za-z_0-9]*\s*=\s*new\s+Scanner\s*\(\s*System\.in\s*\)\s*;',
+    'SCANNER_CLOSE': r'[A-Za-z_][A-Za-z_0-9]*\.close\s*\(\s*\)\s*;',
+    # scanner input methods
+    'SCANNER_NEXTLINE': r'\.nextLine\s*\(\s*\)',
+    'SCANNER_NEXTINT': r'\.nextInt\s*\(\s*\)',
+    'SCANNER_NEXTDOUBLE': r'\.nextDouble\s*\(\s*\)',
+    'SCANNER_NEXTFLOAT': r'\.nextFloat\s*\(\s*\)',
+    'SCANNER_NEXT': r'\.next\s*\(\s*\)',
+    # method/function keywords
+    'VOID': r'\bvoid\b',
+    'RETURN': r'\breturn\b',
+    'PUBLIC': r'\bpublic\b',
+    'PRIVATE': r'\bprivate\b',
+    'PROTECTED': r'\bprotected\b',
+    'STATIC': r'\bstatic\b',
     # variable types
     'INT': r'\bint\b',
     'STRING_TYPE': r'\bString\b',
@@ -33,6 +53,12 @@ TOKEN_PATTERNS = {
     'ELSE': r'\belse\b',
     'WHILE': r'\bwhile\b',
     'FOR': r'\bfor\b',
+    # switch case
+    'SWITCH': r'\bswitch\b',
+    'CASE': r'\bcase\b',
+    'DEFAULT': r'\bdefault\b',
+    'BREAK': r'\bbreak\b',
+    'COLON': r':',
     #string content 
     'STRING': r'"([^"\\]|\\.)*"',     # stops at first closing quote
     'CHAR_LITERAL': r"'(\\.|[^\\'])'",
@@ -73,17 +99,30 @@ TOKEN_PATTERNS = {
 }
 
 # to use in lexer
-SKIP_TOKENS = ['WHITESPACE', 'LINE_COMMENT', 'BLOCK_COMMENT', 'CLASS_DECL', 'MAIN_DECL']
+SKIP_TOKENS = ['WHITESPACE', 'LINE_COMMENT', 'BLOCK_COMMENT', 'MAIN_DECL', 
+               'SCANNER_IMPORT', 'SCANNER_CREATE', 'SCANNER_CLOSE', 'PUBLIC', 'PRIVATE', 
+               'PROTECTED', 'STATIC']
 TYPE_KEYWORDS = ['INT', 'STRING_TYPE', 'CHAR', 'FLOAT', 'DOUBLE', 'BOOLEAN']
-CONTROL_KEYWORDS = ['IF', 'ELSE', 'WHILE', 'FOR']
+CONTROL_KEYWORDS = ['IF', 'ELSE', 'WHILE', 'FOR', 'SWITCH', 'CASE', 'DEFAULT', 'BREAK']
 LITERAL_KINDS = ('string', 'char_literal', 'number', 'float_number', 'true_literal', 'false_literal')
 PRINTABLE_KINDS = ('string', 'identifier', 'number', 'char_literal', 'float_number')
 VALUE_KINDS = LITERAL_KINDS + ('identifier',)
 
 # TOKEN_KINDS maps token pattern names to their semantic categories
 # this provides a consistent way to refer to different token types in the parser
-# used by the parser
 TOKEN_KINDS = {
+    # user input methods
+    'SCANNER_NEXTLINE': 'scanner_nextline',
+    'SCANNER_NEXTINT': 'scanner_nextint',
+    'SCANNER_NEXTDOUBLE': 'scanner_nextdouble',
+    'SCANNER_NEXTFLOAT': 'scanner_nextfloat',
+    'SCANNER_NEXT': 'scanner_next',
+    # class keywords
+    'NEW': 'new_keyword',
+    'THIS': 'this_keyword',
+    # method/function keywords
+    'VOID': 'void_type',
+    'RETURN': 'return_keyword',
     # variable types
     'INT': 'int_type',
     'STRING_TYPE': 'string_type',
@@ -103,6 +142,12 @@ TOKEN_KINDS = {
     'ELSE': 'else_keyword',
     'WHILE': 'while_keyword',
     'FOR': 'for_keyword',
+    # switch case
+    'SWITCH': 'switch_keyword',
+    'CASE': 'case_keyword',
+    'DEFAULT': 'default_keyword',
+    'BREAK': 'break_keyword',
+    'COLON': 'colon',
     # other stuff
     'IDENT': 'identifier', 
     # arithmetic operators
@@ -138,6 +183,7 @@ TOKEN_KINDS = {
 }   
 
 TYPE_TOKEN_KINDS = tuple(TOKEN_KINDS[k] for k in TYPE_KEYWORDS)
+FUNCTION_RETURN_TYPES = TYPE_TOKEN_KINDS + ('void_type',)
 
 # SYMBOLS provides a direct character-to-token-kind mapping for single-character symbols
 # this is used when TOKEN_PATTERNS doesn't match
@@ -152,4 +198,5 @@ SYMBOLS = {
     "{": "left_brace",
     "}": "right_brace",
     ",": "comma",
+    ":": "colon",
 }
