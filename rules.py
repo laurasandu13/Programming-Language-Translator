@@ -20,7 +20,7 @@ TOKEN_PATTERNS = {
     'CLASS_DECL': r'\bpublic\s+class\s+[A-Za-z_][A-Za-z_0-9]*\s*\{',
     'NEW': r'\bnew\b',
     'THIS': r'\bthis\b',
-    'MAIN_DECL': r'\bpublic\s+static\s+void\s+main\s*\(\s*String\s*\[\s*\]\s*args\s*\)\s*{?',
+    # 'MAIN_DECL': r'\bpublic\s+static\s+void\s+main\s*\([^)]*\)\s*\{?',
     # USER INPUT
     # scanner import and object creation
     'SCANNER_IMPORT': r'\bimport\s+java\.util\.Scanner\s*;',
@@ -99,7 +99,7 @@ TOKEN_PATTERNS = {
 }
 
 # to use in lexer
-SKIP_TOKENS = ['WHITESPACE', 'LINE_COMMENT', 'BLOCK_COMMENT', 'MAIN_DECL', 
+SKIP_TOKENS = ['WHITESPACE', 'LINE_COMMENT', 'BLOCK_COMMENT', 
                'SCANNER_IMPORT', 'SCANNER_CREATE', 'SCANNER_CLOSE', 'PUBLIC', 'PRIVATE', 
                'PROTECTED', 'STATIC']
 TYPE_KEYWORDS = ['INT', 'STRING_TYPE', 'CHAR', 'FLOAT', 'DOUBLE', 'BOOLEAN']

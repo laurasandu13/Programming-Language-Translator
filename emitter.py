@@ -30,13 +30,21 @@ def indent_lines(text, level=1):
 
 def emit_module(mod):
     """
-    Generate Python code from Module AST node.
+    Generate Python code from Module AST.
+    Handles both classes and main-only programs.
     """
-    
     lines = []
     for stmt in mod.body:
-        lines.append(emit_stmt(stmt))
-    return "".join(lines) 
+        # check if this is a main-only program (tuple marker)
+        if isinstance(stmt, tuple) and stmt[0] == 'main_body':
+            # flatten the statements - emit them at module level
+            for s in stmt[1]:
+                lines.append(emit_stmt(s))
+        else:
+            # regular statement or class
+            lines.append(emit_stmt(stmt))
+    return "".join(lines)
+ 
 
 def emit_condition(cond):
     """
@@ -374,8 +382,15 @@ def emit_stmt(stmt):
         return f'print({arg})\n'
     
     elif isinstance(stmt, Variable):
+        # Check if it's a standalone expression (method call with no assignment)
+        if stmt.name == '':
+            val = emit_value(stmt.value)
+            return f'{val}\n'
+        
+        # Regular variable assignment
         val = emit_value(stmt.value)
         return f'{stmt.name} = {val}\n'
+
     
     elif isinstance(stmt, IfStatement):
         return emit_if(stmt)

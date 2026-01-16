@@ -229,8 +229,22 @@ def parse_statement(c: Cursor):
                             'scanner_nextfloat', 'scanner_next')):
             return parse_user_input(c)
         return parse_variable(c)
-
     
+    # check for object creation (ClassName varName = new ClassName(...))
+    if (peek.kind == 'identifier' and 
+        c.peek(1).kind == 'identifier' and 
+        c.peek(2).kind == 'assign' and
+        c.peek(3).kind == 'new_keyword'):
+        return parse_variable(c)
+    
+    # check for method calls (varName.methodName(...))
+    if (peek.kind == 'identifier' and 
+        c.peek(1).kind == 'dot' and
+        c.peek(2).kind == 'identifier' and
+        c.peek(3).kind == 'left_parenthesis'):
+        # this is a method call - parse it
+        return parse_method_call(c)
+
     if peek.kind == 'if_keyword':
         return parse_if(c)
     
@@ -336,22 +350,34 @@ def parse_variable(c: Cursor):
     type_token = c.pop()
     name_token = c.expect('identifier')
     
-    #  check if there's an assignment
+    # check if there's an assignment
     if c.peek().kind == 'assign':
         c.expect('assign')
         
         value_tokens = []
         while c.peek().kind != 'semicolon' and c.peek().kind != 'EOF':
-            value_tokens.append(c.pop().value)
+            token = c.pop()
+            value_tokens.append(token.value)
         
         c.expect('semicolon', ';')
         
-        value = ' '.join(value_tokens)
+        # join tokens smartly - no spaces around dots and parentheses
+        if not value_tokens:
+            value = ''
+        else:
+            value = ''
+            for i, tok in enumerate(value_tokens):
+                if i == 0:
+                    value = tok
+                elif tok in ('.', '(', ')', ',') or value_tokens[i-1] in ('.', '('):
+                    value += tok
+                else:
+                    value += ' ' + tok
     
     else:
         # no initialization
         c.expect('semicolon', ';')
-        value = ''  # empty value for uninitalized fields
+        value = ''  # empty value for uninitialized fields
         
     type_hint = type_token.value.lower()
     
@@ -553,6 +579,39 @@ def parse_user_input(c: Cursor):
         var_type=type_token.value.lower()
     )
     
+def parse_method_call(c: Cursor):
+    """
+    Parse a method call statement: objectName.methodName(args);
+    Example: alice.greet(); or buddy.bark();
+    """
+    object_name = c.expect('identifier').value
+    c.expect('dot') 
+    method_name = c.expect('identifier').value 
+    c.expect('left_parenthesis')
+    
+    # collect arguments (if any)
+    args = []
+    while c.peek().kind != 'right_parenthesis' and c.peek().kind != 'EOF':
+        arg_tokens = []
+        while c.peek().kind not in ('comma', 'right_parenthesis', 'EOF'):
+            arg_tokens.append(c.pop().value)
+        
+        if arg_tokens:
+            args.append(' '.join(arg_tokens))
+        
+        if c.peek().kind == 'comma':
+            c.pop()
+    
+    c.expect('right_parenthesis')  # )
+    c.expect('semicolon')  # ;
+    
+    # return as a Variable assignment to handle it simply
+    # format: objectName.methodName(args)
+    args_str = ', '.join(args) if args else ''
+    value = f'{object_name}.{method_name}({args_str})'
+    
+    return Variable(name='', value=value, type_hint='')
+
 def parse_function(c: Cursor):
     return_type_token = c.pop()
     return_type = return_type_token.value.lower()
@@ -680,10 +739,66 @@ def parse_switch(c: Cursor):
     )
 
 def parse_class(c: Cursor):
+    """
+    Parse a Java class declaration.
+    Special case: if class only contains main method, extract and return main body.
+    """
     c.expect('identifier', 'class')
     class_name = c.expect('identifier').value
     c.expect('left_brace')
+
+    # check if this is a main-only class
+    # look ahead: is first non-field member "public static void main"?
+    saved_pos = c.i  # save position to backtrack
     
+    # skip any fields at the start
+    temp_pos = c.i
+    while c.peek().kind in TYPE_TOKEN_KINDS:
+        if c.peek(1).kind == 'identifier' and c.peek(2).kind in ('semicolon', 'assign'):
+            while c.peek().kind != 'semicolon' and c.peek().kind != 'EOF':
+                c.pop()
+            c.pop()  # semicolon
+        else:
+            break
+    
+    # now check if we see void main (public static are skipped by lexer)
+    is_main_only = (c.peek().kind == 'void_type' and
+                    c.peek(1).kind == 'identifier' and c.peek(1).value == 'main' and
+                    c.peek(2).kind == 'left_parenthesis')
+
+    
+    # restore position
+    c.i = saved_pos
+    
+    if is_main_only:
+        # skip to the main method declaration (look for void main)
+        while not (c.peek().kind == 'void_type' and
+                   c.peek(1).kind == 'identifier' and c.peek(1).value == 'main'):
+            if c.peek().kind == 'EOF':
+                break
+            c.pop()
+
+        
+        # skip "public static void main(...)"
+        while c.peek().kind != 'left_brace' and c.peek().kind != 'EOF':
+            c.pop()
+        
+        c.expect('left_brace')  # consume main's {
+        
+        # parse main body statements
+        statements = []
+        while c.peek().kind != 'right_brace' and c.peek().kind != 'EOF':
+            stmt = parse_statement(c)
+            if stmt:
+                statements.append(stmt)
+        
+        c.expect('right_brace')  # consume main's }
+        c.expect('right_brace')  # consume class's }
+        
+        # return a special marker that tells emit_module to flatten these
+        return ('main_body', statements)
+    
+    # normal class parsing (has fields, constructors, multiple methods, etc.)
     fields = []
     constructor = None
     methods = []
@@ -698,7 +813,7 @@ def parse_class(c: Cursor):
                 fields.append(field)
                 continue
         
-        #  check for constructor
+        # check for constructor
         if peek.kind == 'identifier' and peek.value == class_name and c.peek(1).kind == 'left_parenthesis':
             constructor = parse_constructor(c, class_name)
             continue
